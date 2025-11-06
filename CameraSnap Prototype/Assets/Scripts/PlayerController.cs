@@ -20,6 +20,12 @@ public class PlayerController : MonoBehaviour
     public float minFOV = 15f;
     public float zoomSpeed = 10f;
 
+    [Header("Selfie Mode Settings")]
+    public KeyCode selfieKey = KeyCode.R;
+    public LayerMask playerLayer;
+    [Tooltip("How far the camera moves back (from the player) in selfie mode.")]
+    public float selfieCameraDistance = 1.5f;
+
     [Header("Camera Snap Settings")]
     public Image flashImage;
 
@@ -27,13 +33,9 @@ public class PlayerController : MonoBehaviour
     public KeyCode galleryKey = KeyCode.G;
     public GalleryViewer galleryViewer;
 
-    // UI references
     [Header("Context UI Settings")]
-    [Tooltip("UI to show during normal gameplay")]
     public GameObject normalModeUI;
-    [Tooltip("UI to show when in camera mode")]
     public GameObject cameraModeUI;
-    [Tooltip("UI to show when in the gallery")]
     public GameObject galleryModeUI;
 
     // Private variables
@@ -45,12 +47,23 @@ public class PlayerController : MonoBehaviour
     private bool isGalleryOpen = false;
     private float cameraVerticalRotation = 0f;
 
+    private bool isSelfieMode = false;
+    private float cameraYRotation = 0f;
+    private int originalCullingMask;
+
+    // variable to store the camera's original position
+    private Vector3 originalCameraLocalPos;
+
 
     void Start()
     {
         characterController = GetComponent<CharacterController>();
         playerCamera = GetComponentInChildren<Camera>();
         originalFOV = playerCamera.fieldOfView;
+        originalCullingMask = playerCamera.cullingMask;
+
+        // Stores the camera's default local position
+        originalCameraLocalPos = playerCamera.transform.localPosition;
 
         Cursor.lockState = CursorLockMode.Locked;
         Cursor.visible = false;
@@ -67,7 +80,6 @@ public class PlayerController : MonoBehaviour
             flashImage.color = flashColor;
         }
 
-        // Sets the initial UI state
         UpdateControlUI();
     }
 
@@ -89,10 +101,19 @@ public class PlayerController : MonoBehaviour
 
             if (!isCameraMode)
             {
+                // Reset all camera settings when exiting
                 playerCamera.fieldOfView = originalFOV;
+                isSelfieMode = false;
+                cameraYRotation = 0f;
+                playerCamera.cullingMask = originalCullingMask;
+
+                // Resets camera position when exiting
+                playerCamera.transform.localPosition = originalCameraLocalPos;
+
+                // Force-reset rotation
+                playerCamera.transform.localRotation = Quaternion.Euler(cameraVerticalRotation, cameraYRotation, 0);
             }
 
-            // Updates UI when camera mode changes
             UpdateControlUI();
         }
 
@@ -103,25 +124,54 @@ public class PlayerController : MonoBehaviour
 
         if (isCameraMode && !isGalleryOpen)
         {
+            // Zoom logic
             float currentFOV = playerCamera.fieldOfView;
             if (Input.GetKey(KeyCode.W)) { currentFOV -= zoomSpeed * Time.deltaTime; }
             else if (Input.GetKey(KeyCode.S)) { currentFOV += zoomSpeed * Time.deltaTime; }
             currentFOV = Mathf.Clamp(currentFOV, minFOV, originalFOV);
             playerCamera.fieldOfView = currentFOV;
+
+            // Selfie Mode Toggle
+            if (Input.GetKeyDown(selfieKey))
+            {
+                isSelfieMode = !isSelfieMode;
+                cameraYRotation = isSelfieMode ? 180f : 0f;
+
+                if (isSelfieMode)
+                {
+                    playerCamera.cullingMask |= playerLayer.value;
+                    Vector3 selfiePos = originalCameraLocalPos - new Vector3(0, 0, selfieCameraDistance);
+                    playerCamera.transform.localPosition = selfiePos;
+                }
+                else
+                {
+                    // Resets the camera culling to its original value
+                    playerCamera.cullingMask = originalCullingMask;
+
+                    // Resets the camera's position to its original
+                    playerCamera.transform.localPosition = originalCameraLocalPos;
+                }
+            }
         }
 
         if (!isGalleryOpen)
         {
+            // Mouse Look
             float mouseX = Input.GetAxis("Mouse X") * mouseSensitivity;
             float mouseY = Input.GetAxis("Mouse Y") * mouseSensitivity;
+
             transform.Rotate(Vector3.up * mouseX);
+
             cameraVerticalRotation -= mouseY;
             cameraVerticalRotation = Mathf.Clamp(cameraVerticalRotation, -cameraVerticalAngleLimit, cameraVerticalAngleLimit);
-            playerCamera.transform.localRotation = Quaternion.Euler(cameraVerticalRotation, 0, 0);
+
+            // applies both the up/down look and the selfie flip
+            playerCamera.transform.localRotation = Quaternion.Euler(cameraVerticalRotation, cameraYRotation, 0);
         }
 
         if (!isCameraMode && !isGalleryOpen)
         {
+            // Movement
             float horizontal = Input.GetAxis("Horizontal");
             float vertical = Input.GetAxis("Vertical");
             Vector3 moveDirection = transform.forward * vertical + transform.right * horizontal;
@@ -149,7 +199,6 @@ public class PlayerController : MonoBehaviour
             Cursor.visible = false;
         }
 
-        // Updates UI when gallery state changes
         UpdateControlUI();
     }
 
@@ -159,50 +208,35 @@ public class PlayerController : MonoBehaviour
         {
             cameraModeUI.SetActive(false);
         }
-
-        // Capture logic
         if (flashImage != null)
         {
             flashImage.gameObject.SetActive(false);
         }
-
         yield return new WaitForEndOfFrame();
-
         Texture2D photo = ScreenCapture.CaptureScreenshotAsTexture();
-
-        // Shows the camera mode UI again
         if (cameraModeUI != null)
         {
             cameraModeUI.SetActive(true);
         }
-
-        // Sends the new photo to our gallery
         if (PhotoGallery.Instance != null)
         {
             PhotoGallery.Instance.AddPhoto(photo);
         }
-
-        // Re-enables the flash GameObject for the flash effect
         if (flashImage != null)
         {
             flashImage.gameObject.SetActive(true);
         }
-
-        // Flash Effect
         if (flashImage != null)
         {
             Color flashColor = flashImage.color;
             flashColor.a = 1.0f;
             flashImage.color = flashColor;
-
             yield return new WaitForSeconds(0.2f);
-
             flashColor.a = 0f;
             flashImage.color = flashColor;
         }
     }
 
-    // manages UI visibility
     private void UpdateControlUI()
     {
         if (normalModeUI != null) normalModeUI.SetActive(false);
