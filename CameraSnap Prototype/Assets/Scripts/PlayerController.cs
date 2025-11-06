@@ -1,7 +1,8 @@
 using UnityEngine;
 using UnityEngine.Rendering;
-using UnityEngine.UI;     
-using System.Collections;  
+using UnityEngine.UI;
+using System.Collections;
+using System.Collections.Generic;
 
 [RequireComponent(typeof(CharacterController))]
 public class PlayerController : MonoBehaviour
@@ -13,21 +14,32 @@ public class PlayerController : MonoBehaviour
 
     [Header("Mode Settings")]
     public KeyCode cameraModeKey = KeyCode.F;
-    public Volume cameraEffectVolume; 
+    public Volume cameraEffectVolume;
+
+    [Header("Camera Zoom Settings")]
+    public float minFOV = 15f;
+    public float zoomSpeed = 10f;
 
     [Header("Camera Snap Settings")]
-    public float snapZoomFOV = 40f;     
-    public float snapDuration = 0.15f;  
-    public Image flashImage;            
+    public Image flashImage;
 
     [Header("Gallery Settings")]
     public KeyCode galleryKey = KeyCode.G;
-    public GalleryViewer galleryViewer; 
+    public GalleryViewer galleryViewer;
+
+    // UI references
+    [Header("Context UI Settings")]
+    [Tooltip("UI to show during normal gameplay")]
+    public GameObject normalModeUI;
+    [Tooltip("UI to show when in camera mode")]
+    public GameObject cameraModeUI;
+    [Tooltip("UI to show when in the gallery")]
+    public GameObject galleryModeUI;
 
     // Private variables
     private CharacterController characterController;
     private Camera playerCamera;
-    private float originalFOV; // To remember the camera's normal FOV
+    private float originalFOV;
 
     private bool isCameraMode = false;
     private bool isGalleryOpen = false;
@@ -36,43 +48,36 @@ public class PlayerController : MonoBehaviour
 
     void Start()
     {
-        // Get references to our components
         characterController = GetComponent<CharacterController>();
         playerCamera = GetComponentInChildren<Camera>();
-
-        // Stores the camera's starting Field of View
         originalFOV = playerCamera.fieldOfView;
 
-        // Locks and hides the cursor
         Cursor.lockState = CursorLockMode.Locked;
         Cursor.visible = false;
 
-        // Ensure the effects are off at the start
         if (cameraEffectVolume != null)
         {
             cameraEffectVolume.weight = 0;
         }
 
-        // Ensure the flash is off at the start
         if (flashImage != null)
         {
             Color flashColor = flashImage.color;
             flashColor.a = 0f;
             flashImage.color = flashColor;
         }
+
+        // Sets the initial UI state
+        UpdateControlUI();
     }
 
     void Update()
     {
-        // Checks for Gallery Toggle (G Key)
-        // Only allow toggling if not in camera mode
         if (Input.GetKeyDown(galleryKey) && !isCameraMode)
         {
             ToggleGallery();
         }
 
-        // Checks for Mode Swap (F Key)
-        // Only allow toggling if gallery is not open
         if (Input.GetKeyDown(cameraModeKey) && !isGalleryOpen)
         {
             isCameraMode = !isCameraMode;
@@ -81,100 +86,97 @@ public class PlayerController : MonoBehaviour
             {
                 cameraEffectVolume.weight = isCameraMode ? 1.0f : 0.0f;
             }
+
+            if (!isCameraMode)
+            {
+                playerCamera.fieldOfView = originalFOV;
+            }
+
+            // Updates UI when camera mode changes
+            UpdateControlUI();
         }
 
-        // Checks for Camera Snap (Spacebar)
-        // Only allow if in camera mode and gallery is not open
         if (isCameraMode && Input.GetKeyDown(KeyCode.Space) && !isGalleryOpen)
         {
             StartCoroutine(PhotoSnapSequence());
         }
 
-        // Mouse Look
-        // Only allow if gallery is not open
+        if (isCameraMode && !isGalleryOpen)
+        {
+            float currentFOV = playerCamera.fieldOfView;
+            if (Input.GetKey(KeyCode.W)) { currentFOV -= zoomSpeed * Time.deltaTime; }
+            else if (Input.GetKey(KeyCode.S)) { currentFOV += zoomSpeed * Time.deltaTime; }
+            currentFOV = Mathf.Clamp(currentFOV, minFOV, originalFOV);
+            playerCamera.fieldOfView = currentFOV;
+        }
+
         if (!isGalleryOpen)
         {
             float mouseX = Input.GetAxis("Mouse X") * mouseSensitivity;
             float mouseY = Input.GetAxis("Mouse Y") * mouseSensitivity;
-
-            // Rotates the Player object left/right
             transform.Rotate(Vector3.up * mouseX);
-
-            // Rotates the Camera up/down
             cameraVerticalRotation -= mouseY;
             cameraVerticalRotation = Mathf.Clamp(cameraVerticalRotation, -cameraVerticalAngleLimit, cameraVerticalAngleLimit);
             playerCamera.transform.localRotation = Quaternion.Euler(cameraVerticalRotation, 0, 0);
         }
 
-        // Player Movement
-        // Only allow if not in camera mode and gallery is not open
         if (!isCameraMode && !isGalleryOpen)
         {
-            float horizontal = Input.GetAxis("Horizontal"); // A/D keys
-            float vertical = Input.GetAxis("Vertical");     // W/S keys
-
+            float horizontal = Input.GetAxis("Horizontal");
+            float vertical = Input.GetAxis("Vertical");
             Vector3 moveDirection = transform.forward * vertical + transform.right * horizontal;
             characterController.SimpleMove(moveDirection * walkSpeed);
         }
     }
 
-    // This function controls the player state and tells the UI to open/close
     private void ToggleGallery()
     {
         isGalleryOpen = !isGalleryOpen;
 
-        // Tell the GalleryViewer script to show/hide
         if (galleryViewer != null)
         {
             galleryViewer.ToggleGallery(isGalleryOpen);
         }
 
-        // Manage cursor
         if (isGalleryOpen)
         {
-            // Unlocks and shows the cursor
             Cursor.lockState = CursorLockMode.None;
             Cursor.visible = true;
         }
         else
         {
-            // Re-locks and hides the cursor for gameplay
             Cursor.lockState = CursorLockMode.Locked;
             Cursor.visible = false;
         }
+
+        // Updates UI when gallery state changes
+        UpdateControlUI();
     }
 
-    // This is the function that handles the photo snap effect over time
     IEnumerator PhotoSnapSequence()
     {
-        // Zoom In
-        float halfDuration = snapDuration / 2f;
-        float elapsedTime = 0f;
-
-        while (elapsedTime < halfDuration)
+        if (cameraModeUI != null)
         {
-            playerCamera.fieldOfView = Mathf.Lerp(originalFOV, snapZoomFOV, elapsedTime / halfDuration);
-            elapsedTime += Time.deltaTime;
-            yield return null;
+            cameraModeUI.SetActive(false);
         }
 
-        // Force it to the final zoom value
-        playerCamera.fieldOfView = snapZoomFOV;
-
         // Capture logic
-        // Hides the flash UI so it's not in the picture
         if (flashImage != null)
         {
             flashImage.gameObject.SetActive(false);
         }
 
-        // Wait for the end of the frame to ensure rendering is complete
         yield return new WaitForEndOfFrame();
 
-        // Capture the screen and create a texture
         Texture2D photo = ScreenCapture.CaptureScreenshotAsTexture();
 
-        // Send the new photo to our gallery
+        // Shows the camera mode UI again
+        if (cameraModeUI != null)
+        {
+            cameraModeUI.SetActive(true);
+        }
+
+        // Sends the new photo to our gallery
         if (PhotoGallery.Instance != null)
         {
             PhotoGallery.Instance.AddPhoto(photo);
@@ -190,25 +192,34 @@ public class PlayerController : MonoBehaviour
         if (flashImage != null)
         {
             Color flashColor = flashImage.color;
-            flashColor.a = 1.0f; // This was 1.0f in your original code
+            flashColor.a = 1.0f;
             flashImage.color = flashColor;
 
-            yield return new WaitForSeconds(0.2f); // This was 0.2f in your original code
+            yield return new WaitForSeconds(0.2f);
 
             flashColor.a = 0f;
             flashImage.color = flashColor;
         }
+    }
 
-        // Zoom Out
-        elapsedTime = 0f;
+    // manages UI visibility
+    private void UpdateControlUI()
+    {
+        if (normalModeUI != null) normalModeUI.SetActive(false);
+        if (cameraModeUI != null) cameraModeUI.SetActive(false);
+        if (galleryModeUI != null) galleryModeUI.SetActive(false);
 
-        while (elapsedTime < halfDuration)
+        if (isGalleryOpen)
         {
-            playerCamera.fieldOfView = Mathf.Lerp(snapZoomFOV, originalFOV, elapsedTime / halfDuration);
-            elapsedTime += Time.deltaTime;
-            yield return null;
+            if (galleryModeUI != null) galleryModeUI.SetActive(true);
         }
-
-        playerCamera.fieldOfView = originalFOV;
+        else if (isCameraMode)
+        {
+            if (cameraModeUI != null) cameraModeUI.SetActive(true);
+        }
+        else
+        {
+            if (normalModeUI != null) normalModeUI.SetActive(true);
+        }
     }
 }

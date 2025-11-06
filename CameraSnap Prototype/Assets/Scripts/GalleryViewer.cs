@@ -9,7 +9,7 @@ public class GalleryViewer : MonoBehaviour
     public RawImage photoDisplay;
     public Button nextButton;
     public Button prevButton;
-    public TextMeshProUGUI photoCounterText; // To show "1 / 5", will fix!
+    public TextMeshProUGUI photoCounterText;
 
     private PhotoGallery gallery;
     private int currentPhotoIndex = 0;
@@ -62,7 +62,6 @@ public class GalleryViewer : MonoBehaviour
         nextButton.interactable = (currentPhotoIndex < gallery.takenPhotos.Count - 1);
 
         // Update the counter text
-        // Will fix later to show "1 / 5" style
         if (photoCounterText != null)
         {
             photoCounterText.text = (currentPhotoIndex + 1) + " / " + gallery.takenPhotos.Count;
